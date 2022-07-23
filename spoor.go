@@ -22,7 +22,7 @@ func WithFileWriter(writer *FileWriter) Option {
 	}
 }
 
-func WithNormalWriter(writer io.Writer) Option {
+func WithConsoleWriter(writer io.Writer) Option {
 	return func(spoor *Spoor) {
 		spoor.l.SetOutput(writer)
 	}
@@ -45,28 +45,28 @@ func (s *Spoor) DebugF(f string, args ...interface{}) {
 	if s.checkLevel(DEBUG) {
 		return
 	}
-	s.l.Output(3, fmt.Sprintf(DEBUG.String()+" "+f, args...))
+	s.l.Output(2, fmt.Sprintf(DEBUG.String()+" "+f, args...))
 }
 
 func (s *Spoor) ErrorF(f string, args ...interface{}) {
 	if s.checkLevel(ERROR) {
 		return
 	}
-	s.l.Output(3, fmt.Sprintf(ERROR.String()+" "+f, args...))
+	s.l.Output(2, fmt.Sprintf(ERROR.String()+" "+f, args...))
 }
 
 func (s *Spoor) InfoF(f string, args ...interface{}) {
 	if s.checkLevel(INFO) {
 		return
 	}
-	s.l.Output(3, fmt.Sprintf(INFO.String()+" "+f, args...))
+	s.l.Output(2, fmt.Sprintf(INFO.String()+" "+f, args...))
 }
 
 func (s *Spoor) FatalF(f string, args ...interface{}) {
 	if s.checkLevel(FATAL) {
 		return
 	}
-	s.l.Output(3, fmt.Sprintf(FATAL.String()+" "+f, args...))
+	s.l.Output(2, fmt.Sprintf(FATAL.String()+" "+f, args...))
 }
 
 func (l *Spoor) checkLevel(level Level) bool {

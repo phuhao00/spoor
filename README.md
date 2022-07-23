@@ -23,9 +23,27 @@ select {}
 
 ```
 
-## normal output
+## consoleWriter
 
 ```` go
 l := NewSpoor(DEBUG, "", log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile, WithNormalWriter(os.Stdout))
 l.DebugF("hhhh")
+````
+## elasticWriter
+
+````go
+
+
+````
+## clickHouseWriter
+
+````go
+
+
+````
+## logbusWriter
+
+````go
+
+
 ````
