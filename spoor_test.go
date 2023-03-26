@@ -9,15 +9,12 @@ import (
 )
 
 func TestName(t *testing.T) {
-	l := NewSpoor(DEBUG, "", log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile, WithConsoleWriter(os.Stdout))
-	l.DebugF("hhhh")
-	l.InfoF("jjjjj")
+	NewSpoor(DEBUG, "", log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile, WithConsoleWriter(os.Stdout))
 }
 
 func TestFileWriter(t *testing.T) {
 	fileWriter := NewFileWriter("log", 0, 0, 0)
-	l := NewSpoor(DEBUG, "", log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile, WithFileWriter(fileWriter))
-	l.DebugF("hhhh")
+	NewSpoor(DEBUG, "", log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile, WithFileWriter(fileWriter))
 	select {}
 
 }
