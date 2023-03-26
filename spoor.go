@@ -45,3 +45,10 @@ func (l *Spoor) CheckLevel(level Level) bool {
 	}
 	return true
 }
+
+type LoggingSetting struct {
+	Dir          string
+	Level        int
+	Prefix       string
+	WriterOption Option
+}
