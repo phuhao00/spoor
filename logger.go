@@ -12,6 +12,21 @@ func New(writer Writer, level LogLevel, options ...Option) Logger {
 	return NewCoreLogger(writer, level, options...)
 }
 
+// NewAsync creates a new async logger with the specified writer and level
+func NewAsync(writer Writer, level LogLevel, config AsyncLoggerConfig, options ...Option) Logger {
+	return NewAsyncLogger(writer, level, config, options...)
+}
+
+// NewSimpleLogger creates a new simple logger with the specified configuration
+func NewSimpleLogger(config SimpleConfig) (*SimpleLogger, error) {
+	return NewSimple(config)
+}
+
+// NewAdvanced creates a new advanced logger with the specified configuration
+func NewAdvanced(writer Writer, level LogLevel, config AdvancedConfig, options ...Option) Logger {
+	return NewAdvancedLogger(writer, level, config, options...)
+}
+
 // NewWithDefaults creates a new logger with default settings
 func NewWithDefaults() Logger {
 	writer := NewWriterFactory().CreateConsoleWriterToStdout()

@@ -101,8 +101,8 @@ type Configurable interface {
 	Configure(config interface{}) error
 }
 
-// BatchWriter defines the interface for writers that support batch operations
-type BatchWriter interface {
+// BatchWriterInterface defines the interface for writers that support batch operations
+type BatchWriterInterface interface {
 	Writer
 	Flush() error
 	SetBatchSize(size int)
