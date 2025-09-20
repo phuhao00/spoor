@@ -1,4 +1,4 @@
-module github.com/phuhao00/spoor
+module github.com/phuhao00/spoor/v2
 
 go 1.24.0
 
