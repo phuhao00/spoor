@@ -1,0 +1,44 @@
+# Spoor日志库配置示例
+
+# 基本配置
+logging:
+  level: "DEBUG"  # DEBUG, INFO, WARN, ERROR, FATAL
+  prefix: ""
+  flags: "Ldate|Ltime|Lmicroseconds|Llongfile"
+
+# 文件输出配置
+file:
+  enabled: true
+  dir: "logs"
+  max_size: 104857600  # 100MB
+  buffer_size: 262144  # 256KB
+  flush_interval: 3    # 3秒
+
+# 控制台输出配置
+console:
+  enabled: true
+  output: "stdout"  # stdout, stderr
+
+# Elasticsearch配置
+elasticsearch:
+  enabled: false
+  url: "http://localhost:9200"
+  index: "app-logs"
+  batch_size: 100
+  flush_time: "5s"
+
+# ClickHouse配置
+clickhouse:
+  enabled: false
+  dsn: "tcp://localhost:9000?database=logs"
+  table_name: "app_logs"
+  batch_size: 100
+  flush_time: "5s"
+
+# Logbus配置
+logbus:
+  enabled: false
+  url: "https://api.logbus.com/logs"
+  token: "your-token-here"
+  batch_size: 100
+  flush_time: "5s"

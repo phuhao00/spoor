@@ -2,151 +2,213 @@ package spoor
 
 import (
 	"bufio"
-	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 )
 
+// FileWriter writes logs to files with rotation support
 type FileWriter struct {
-	*bufio.Writer
+	*BaseWriter
+	mu            sync.RWMutex
 	file          *os.File
-	level         Level
-	bytesCounter  uint64 // The number of bytes written to this file
-	maxSize       uint64
+	writer        *bufio.Writer
 	logDir        string
-	bufferSize    int
-	flushInterval int //second
-	mu            sync.Mutex
+	maxSize       int64
+	currentSize   int64
+	rotationCount int
 }
 
-func NewFileWriter(logDir string, bufferSize, flushInterval int, maxSize uint64) *FileWriter {
-	fw := &FileWriter{
-		maxSize:       maxSize,
-		logDir:        logDir,
-		bufferSize:    bufferSize,
-		flushInterval: flushInterval,
-		mu:            sync.Mutex{},
-	}
-	if maxSize == 0 {
-		fw.maxSize = 1024 * 1024 * 1800
-	}
-	if flushInterval == 0 {
-		fw.flushInterval = 3
-	}
-	if bufferSize == 0 {
-		fw.bufferSize = 256 * 1024
-	}
-	fw.loop()
-	return fw
+// FileWriterConfig holds configuration for file writer
+type FileWriterConfig struct {
+	LogDir        string
+	MaxSize       int64
+	Formatter     Formatter
+	BatchSize     int
+	FlushInterval int // in seconds
 }
 
-func (fw *FileWriter) Sync() error {
-	return fw.file.Sync()
+// NewFileWriter creates a new file writer
+func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
+	if config.Formatter == nil {
+		config.Formatter = NewTextFormatter()
+	}
+
+	// Create log directory if it doesn't exist
+	if err := os.MkdirAll(config.LogDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	writer := &FileWriter{
+		logDir:  config.LogDir,
+		maxSize: config.MaxSize,
+	}
+
+	baseWriter := NewBaseWriter(writer, config.Formatter)
+	if config.BatchSize > 0 {
+		baseWriter.SetBatchSize(config.BatchSize)
+	}
+	if config.FlushInterval > 0 {
+		baseWriter.SetFlushInterval(time.Duration(config.FlushInterval) * time.Second)
+	}
+	writer.BaseWriter = baseWriter
+
+	// Initialize the first log file
+	if err := writer.rotateFile(); err != nil {
+		return nil, fmt.Errorf("failed to create initial log file: %w", err)
+	}
+
+	// Start the flush loop
+	writer.StartFlushLoop()
+
+	return writer, nil
 }
 
-func (fw *FileWriter) Write(p []byte) (n int, err error) {
-	if fw.bytesCounter+uint64(len(p)) >= fw.maxSize || fw.Writer == nil {
-		if err := fw.rotateFile(time.Now()); err != nil {
-			fw.exit(err)
+// NewFileWriterWithDefaults creates a file writer with default settings
+func NewFileWriterWithDefaults(logDir string) (*FileWriter, error) {
+	return NewFileWriter(FileWriterConfig{
+		LogDir:        logDir,
+		MaxSize:       100 * 1024 * 1024, // 100MB
+		BatchSize:     100,
+		FlushInterval: 5,
+	})
+}
+
+// Write implements io.Writer interface
+func (w *FileWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file == nil {
+		return 0, fmt.Errorf("file writer is closed")
+	}
+
+	// Check if we need to rotate
+	if w.maxSize > 0 && w.currentSize+int64(len(p)) > w.maxSize {
+		if err := w.rotateFileUnsafe(); err != nil {
+			return 0, err
 		}
 	}
-	n, err = fw.Writer.Write(p)
-	fw.bytesCounter += uint64(n)
+
+	// Write to file
+	n, err = w.writer.Write(p)
 	if err != nil {
-		fw.exit(err)
+		return n, err
 	}
-	return
+
+	w.currentSize += int64(n)
+	return n, nil
 }
 
-// rotateFile closes the FileWriter's file and starts a new one.
-func (fw *FileWriter) rotateFile(now time.Time) error {
-	if fw.file != nil {
-		fw.Flush()
-		fw.file.Close()
-	}
-	var err error
-	fw.file, _, err = createLogFile(fw.level.String(), fw.logDir, now)
-	fw.bytesCounter = 0
+// WriteEntry writes a structured log entry
+func (w *FileWriter) WriteEntry(entry LogEntry) error {
+	// Format the entry
+	data, err := w.formatter.Format(entry)
 	if err != nil {
 		return err
 	}
 
-	fw.Writer = bufio.NewWriterSize(fw.file, fw.bufferSize)
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Log file created at: %s\n", now.Format("2006/01/02 15:04:05"))
-	fmt.Fprintf(&buf, "Running on machine: %s\n", host)
-	fmt.Fprintf(&buf, "Built with %s %s for %s/%s\n", runtime.Compiler, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(&buf, "line format: mmdd hh:mm:ss.uuuuuu  file:line level msg\n")
-	n, err := fw.file.Write(buf.Bytes())
-	fw.bytesCounter += uint64(n)
+	// Write the formatted data
+	_, err = w.Write(data)
 	return err
 }
 
-func createLogFile(levelName, logDir string, t time.Time) (f *os.File, filename string, err error) {
-	if len(logDir) == 0 {
-		return nil, "", errors.New("no log dirs")
+// rotateFile rotates the log file
+func (w *FileWriter) rotateFile() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.rotateFileUnsafe()
+}
+
+// rotateFileUnsafe rotates the log file without locking
+func (w *FileWriter) rotateFileUnsafe() error {
+	// Close current file
+	if w.file != nil {
+		w.writer.Flush()
+		w.file.Close()
 	}
-	os.Mkdir(logDir, 0777)
-	name, link := getLogName(levelName, t)
-	var lastErr error
-	fname := filepath.Join(logDir, name)
-	f, err = os.Create(fname)
-	if err == nil {
-		symlink := filepath.Join(logDir, link)
-		os.Remove(symlink)
-		os.Symlink(name, symlink)
-		return f, fname, nil
+
+	// Create new file
+	filename := w.generateFilename()
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %w", err)
 	}
-	lastErr = err
-	return nil, "", fmt.Errorf("cannot create log file: %v", lastErr)
+
+	w.file = file
+	w.writer = bufio.NewWriter(file)
+	w.currentSize = 0
+	w.rotationCount++
+
+	// Write header
+	header := fmt.Sprintf("Log file created at: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	w.writer.WriteString(header)
+	w.currentSize += int64(len(header))
+
+	return nil
 }
 
-func getLogName(levelName string, t time.Time) (name, link string) {
-	name = fmt.Sprintf("%s.log.%04d-%02d-%02d-%02d-%02d-%02d.%4d",
-		program,
-		t.Year(),
-		t.Month(),
-		t.Day(),
-		t.Hour(),
-		t.Minute(),
-		t.Second(),
-		pid)
-	return name, program + "." + levelName
+// generateFilename generates a unique filename for the log file
+func (w *FileWriter) generateFilename() string {
+	timestamp := time.Now().Format("2006-01-02-15-04-05")
+	return filepath.Join(w.logDir, fmt.Sprintf("app-%s-%d.log", timestamp, w.rotationCount))
 }
 
-// flushTicker periodically flushes the log file buffers.
-func (fw *FileWriter) flushTicker() {
-	for _ = range time.NewTicker(time.Second * time.Duration(fw.flushInterval)).C {
-		fw.lockAndFlush()
+// Flush flushes the writer buffer
+func (w *FileWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.writer != nil {
+		return w.writer.Flush()
 	}
+	return nil
 }
 
-// lockAndFlush is like flush but locks fw.mu first.
-func (fw *FileWriter) lockAndFlush() {
-	fw.mu.Lock()
-	fw.flush()
-	fw.mu.Unlock()
-}
+// Close closes the file writer
+func (w *FileWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-func (fw *FileWriter) flush() {
-	file := fw.file
-	if file != nil {
-		fw.Writer.Flush()
-		fw.Sync()
+	if w.file == nil {
+		return nil
 	}
+
+	// Flush and close
+	if w.writer != nil {
+		w.writer.Flush()
+	}
+
+	err := w.file.Close()
+	w.file = nil
+	w.writer = nil
+
+	return err
 }
 
-func (fw *FileWriter) exit(err error) {
-	fmt.Fprintf(os.Stderr, "log: exiting error: %s\n", err)
-	fw.flush()
-	os.Exit(2)
+// GetCurrentFile returns the current log file path
+func (w *FileWriter) GetCurrentFile() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if w.file != nil {
+		return w.file.Name()
+	}
+	return ""
 }
 
-func (fw *FileWriter) loop() {
-	go fw.flushTicker()
+// GetCurrentSize returns the current file size
+func (w *FileWriter) GetCurrentSize() int64 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.currentSize
+}
+
+// GetRotationCount returns the number of rotations
+func (w *FileWriter) GetRotationCount() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.rotationCount
 }
