@@ -166,6 +166,106 @@ func main() {
 }
 ```
 
+### 高级功能
+
+#### 采样和过滤
+
+```go
+package main
+
+import "github.com/phuhao00/spoor/v2"
+
+func main() {
+    // 采样：只记录10%的日志
+    sampler := spoor.NewRateSampler(0.1)
+    
+    // 过滤：只记录WARN级别以上的日志
+    filter := spoor.NewLevelFilter(spoor.LevelWarn)
+    
+    // 创建高级日志器
+    config := spoor.AdvancedConfig{
+        Sampler: sampler,
+        Filter:  filter,
+        Metrics: true,
+    }
+    
+    writer := spoor.NewConsoleWriter(spoor.ConsoleWriterConfig{Output: os.Stdout})
+    logger := spoor.NewAdvancedLogger(writer, spoor.LevelInfo, config)
+    
+    // 大量日志，只有部分会被记录
+    for i := 0; i < 1000; i++ {
+        logger.Infof("Message %d", i) // 大部分会被过滤
+        logger.Warnf("Warning %d", i) // 部分会被采样
+    }
+    
+    // 获取性能指标
+    metrics := logger.GetMetrics()
+    fmt.Printf("Metrics: %+v\n", metrics)
+    
+    logger.Close()
+}
+```
+
+#### 性能监控
+
+```go
+package main
+
+import "github.com/phuhao00/spoor/v2"
+
+func main() {
+    // 创建性能监控器
+    monitor := spoor.NewPerformanceMonitor()
+    
+    logger := spoor.QuickAsync()
+    
+    // 记录日志并监控性能
+    for i := 0; i < 10000; i++ {
+        start := time.Now()
+        logger.Infof("Message %d", i)
+        monitor.RecordLog()
+        monitor.RecordLatency(time.Since(start))
+    }
+    
+    logger.Sync()
+    logger.Close()
+    
+    // 打印性能统计
+    monitor.PrintStats()
+    monitor.Close()
+}
+```
+
+#### 配置管理
+
+```go
+package main
+
+import "github.com/phuhao00/spoor/v2"
+
+func main() {
+    // 创建默认配置
+    config := spoor.DefaultConfig()
+    
+    // 保存配置到文件
+    spoor.SaveConfig(config, "spoor-config.json")
+    
+    // 从配置文件创建日志器
+    loadedConfig, err := spoor.LoadConfig("spoor-config.json")
+    if err != nil {
+        panic(err)
+    }
+    
+    logger, err := spoor.CreateLoggerFromConfig(&loadedConfig.Loggers["default"])
+    if err != nil {
+        panic(err)
+    }
+    
+    logger.Info("从配置创建的日志器")
+    logger.Close()
+}
+```
+
 ## 📁 输出方式
 
 ### 1. 文件输出 (FileWriter)
@@ -329,25 +429,38 @@ go test -v
 
 ```bash
 # 运行所有基准测试
-go test -bench=. -benchmem
+make benchmark
 
 # 运行特定基准测试
-go test -bench=BenchmarkAsyncLogger -benchmem
+make benchmark-async
+make benchmark-simple
+make benchmark-batch
 
 # 运行性能示例
-go run examples/performance/main.go
+make example-performance
+
+# 运行完整示例
+make example-complete
 ```
 
 ### 性能对比
 
-| 日志器类型 | 消息/秒 | 内存分配 | 延迟 |
-|-----------|---------|----------|------|
-| 标准库 log | ~100K | 高 | 高 |
-| Spoor 简单 | ~500K | 中 | 中 |
-| Spoor 异步 | ~2M | 低 | 极低 |
-| Spoor 批量 | ~1.5M | 极低 | 低 |
+| 日志器类型 | 消息/秒 | 内存分配 | 延迟 | 性能提升 |
+|-----------|---------|----------|------|----------|
+| 标准库 log | ~100K | 高 | 高 | 基准 |
+| Spoor 简单 | ~500K | 中 | 中 | 5x |
+| Spoor 异步 | ~2M | 低 | 极低 | 20x |
+| Spoor 批量 | ~1.5M | 极低 | 低 | 15x |
 
 *测试环境：Go 1.21, 8核CPU, 16GB内存*
+
+### 内存使用对比
+
+| 功能 | 标准库 | Spoor | 优化 |
+|------|--------|-------|------|
+| 内存分配 | 高 | 低 | 50%+ 减少 |
+| GC压力 | 高 | 低 | 内存池优化 |
+| 内存泄漏 | 可能 | 无 | 自动管理 |
 
 ## ❓ 常见问题
 
